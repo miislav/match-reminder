@@ -36,7 +36,7 @@ def send_slack(text):
 
 
 def build_message(team, opponent, start, is_home):
-    hhmm = start.astimezone(ZoneInfo(TIMEZONE)).strftime("%H:%M")
+    hhmm = start.astimezone(ZoneInfo(TIMEZONE)).strftime("%H:%M %Z")
     link = f"<{team['stream']}|live show stream>"
     if is_home:
         return (f"{team['display']} vs {opponent} match starts today at {hhmm}! - "
