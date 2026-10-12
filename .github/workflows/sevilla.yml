@@ -1,0 +1,43 @@
+name: Match podsjetnik
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+    inputs:
+      test:
+        description: "Pošalji testne poruke u Slack"
+        type: boolean
+        default: true
+
+# Nikad ne pokreće dvije provjere istovremeno (sprječava duple poruke)
+concurrency:
+  group: match-reminder
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Učitaj popis već poslanih obavijesti
+        uses: actions/cache/restore@v4
+        with:
+          path: sent.json
+          key: sent-${{ github.run_id }}
+          restore-keys: sent-
+
+      - name: Provjeri utakmice
+        run: python3 sevilla_bot.py
+        env:
+          FOOTBALL_API_KEY: ${{ secrets.FOOTBALL_API_KEY }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          TEST: ${{ inputs.test }}
+
+      - name: Spremi popis poslanih obavijesti
+        if: ${{ !inputs.test }}
+        uses: actions/cache/save@v4
+        with:
+          path: sent.json
+          key: sent-${{ github.run_id }}
