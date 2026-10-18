@@ -86,18 +86,22 @@ for team in TEAMS:
 
         start = datetime.fromisoformat(m["utcDate"].replace("Z", "+00:00"))
         minutes = (start - now).total_seconds() / 60
-        # Skripta se pokreće svakih 15 min: uhvati utakmice za 60-75 min,
-        # pa pričeka da bude točno 60 min do početka.
-        if MINUTES_BEFORE < minutes <= MINUTES_BEFORE + 15:
+        print(f"{home.get('name')} - {away.get('name')}: početak {m['utcDate']}, za {minutes:.0f} min")
+        # Uhvati svaku neposlanu utakmicu koja počinje u sljedećih 75 min.
+        # Ako je do početka više od 60 min, pričeka točno 60 min prije.
+        # Ako je GitHub preskočio pokretanja, pošalje odmah (kasnije, ali ne propusti).
+        if 0 < minutes <= MINUTES_BEFORE + 15:
             opponent = team_name(away if is_home else home)
             due.append((start, m["id"], build_message(team, opponent, start, is_home)))
 
+print(f"Za slanje: {len(due)}")
 for start, match_id, text in sorted(due):
     wait = (start - timedelta(minutes=MINUTES_BEFORE) - datetime.now(timezone.utc)).total_seconds()
     if wait > 0:
         time.sleep(wait)
     send_slack(text)
     sent.append(match_id)
+    print("Poslano:", text)
 
 with open(SENT_FILE, "w") as f:
     json.dump(sent[-100:], f)
