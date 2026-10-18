@@ -21,7 +21,9 @@ TEAMS = [
     },
 ]
 TIMEZONE = "Europe/Zagreb"   # u kojoj se zoni ispisuje hh:mm
-MINUTES_BEFORE = 60
+MINUTES_BEFORE = 60          # obavijest stiže 60 min prije početka
+LATEST_MINUTES_BEFORE = 30   # ako kasni, najkasnije 30 min prije, nikad poslije
+LOOKAHEAD_MINUTES = 180      # utakmicu "uhvati" do 3 sata unaprijed i čeka
 # ====================================================
 
 API_KEY = os.environ["FOOTBALL_API_KEY"]
@@ -87,10 +89,10 @@ for team in TEAMS:
         start = datetime.fromisoformat(m["utcDate"].replace("Z", "+00:00"))
         minutes = (start - now).total_seconds() / 60
         print(f"{home.get('name')} - {away.get('name')}: početak {m['utcDate']}, za {minutes:.0f} min")
-        # Uhvati svaku neposlanu utakmicu koja počinje u sljedećih 75 min.
-        # Ako je do početka više od 60 min, pričeka točno 60 min prije.
-        # Ako je GitHub preskočio pokretanja, pošalje odmah (kasnije, ali ne propusti).
-        if 0 < minutes <= MINUTES_BEFORE + 15:
+        # Svako pokretanje u zadnja 3 sata prije utakmice je uhvati i pričeka
+        # točno 60 min prije početka, pa jedno preskočeno pokretanje ne smeta.
+        # Ako je ipak kasno, šalje odmah, ali najkasnije 30 min prije početka.
+        if LATEST_MINUTES_BEFORE <= minutes <= LOOKAHEAD_MINUTES:
             opponent = team_name(away if is_home else home)
             due.append((start, m["id"], build_message(team, opponent, start, is_home)))
 
@@ -98,7 +100,11 @@ print(f"Za slanje: {len(due)}")
 for start, match_id, text in sorted(due):
     wait = (start - timedelta(minutes=MINUTES_BEFORE) - datetime.now(timezone.utc)).total_seconds()
     if wait > 0:
+        print(f"Čekam {wait/60:.0f} min do slanja...")
         time.sleep(wait)
+    if (start - datetime.now(timezone.utc)).total_seconds() / 60 < LATEST_MINUTES_BEFORE:
+        print("Prekasno za slanje, preskačem:", text)
+        continue
     send_slack(text)
     sent.append(match_id)
     print("Poslano:", text)
