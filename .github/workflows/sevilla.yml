@@ -34,7 +34,7 @@ jobs:
           restore-keys: sent-
 
       - name: Provjeri utakmice
-        run: python3 sevilla_bot.py
+        run: python3 -u sevilla_bot.py
         env:
           FOOTBALL_API_KEY: ${{ secrets.FOOTBALL_API_KEY }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
