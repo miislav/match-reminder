@@ -12,9 +12,9 @@ on:
 
 permissions:
   actions: write
-  contents: read
+  contents: write
 
-# Uvijek radi samo jedna "smjena" bota (sprječava duple poruke)
+# Uvijek radi samo jedna "smjena" bota, a sljedeća čeka u redu (sprječava duple poruke)
 concurrency:
   group: match-reminder
   cancel-in-progress: false
@@ -24,6 +24,21 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 355
     steps:
+      # Sljedeća smjena se naruči ODMAH na početku i čeka u redu.
+      # Tako lanac ne puca ni ako ova smjena padne, zapne ili bude prekinuta.
+      - name: Naruči sljedeću smjenu
+        id: order
+        if: ${{ !inputs.test }}
+        continue-on-error: true
+        run: |
+          for i in 1 2 3 4 5; do
+            gh workflow run sevilla.yml --repo "${{ github.repository }}" -f test=false && exit 0
+            echo "Naručivanje nije uspjelo, pokušavam ponovno..."; sleep 15
+          done
+          exit 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+
       - uses: actions/checkout@v4
 
       - name: Učitaj popis već poslanih obavijesti
@@ -47,8 +62,24 @@ jobs:
           path: sent.json
           key: sent-${{ github.run_id }}
 
-      - name: Pokreni sljedeću smjenu
-        if: ${{ success() && !inputs.test }}
-        run: gh workflow run sevilla.yml --repo "${{ github.repository }}" -f test=false
+      # GitHub uspava botove u repozitorijima bez promjena 60 dana.
+      # Jednom u 25 dana bot napravi praznu promjenu da ostane budan.
+      - name: Održavanje (sprječava uspavljivanje)
+        if: ${{ always() && !inputs.test }}
+        run: |
+          last=$(git log -1 --format=%ct)
+          if [ $(( ($(date +%s) - last) / 86400 )) -ge 25 ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit --allow-empty -m "Održavanje: bot je budan"
+            git push
+          fi
+
+      - name: Upozori u Slacku ako je nešto pošlo po zlu
+        if: ${{ !inputs.test && (failure() || steps.order.outcome == 'failure') }}
+        run: |
+          curl -s -X POST -H 'Content-Type: application/json' \
+            --data '{"text":":warning: *Match reminder:* jedna smjena bota naišla je na grešku. Bot pokušava nastaviti sam, ali ako ova poruka stigne više puta zaredom, javi se.\nZapis: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"}' \
+            "$SLACK_WEBHOOK_URL"
         env:
-          GH_TOKEN: ${{ github.token }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
