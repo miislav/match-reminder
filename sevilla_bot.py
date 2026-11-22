@@ -25,6 +25,7 @@ MINUTES_BEFORE = 60          # obavijest stiže 60 min prije početka
 LATEST_MINUTES_BEFORE = 30   # ako kasni, najkasnije 30 min prije, nikad poslije
 RUN_MINUTES = 340            # koliko jedna "smjena" bota traje prije nego preda sljedećoj
 CHECK_EVERY_SECONDS = 300    # koliko često provjerava raspored
+FETCH_ALERT_MINUTES = 45     # ako raspored nije dostupan ovoliko dugo, upozori u Slacku
 # ====================================================
 
 API_KEY = os.environ["FOOTBALL_API_KEY"]
@@ -36,10 +37,19 @@ def now_utc():
     return datetime.now(timezone.utc)
 
 
-def send_slack(text):
+def send_slack(text, attempts=5):
+    """Pošalje poruku u Slack; ako ne uspije, pokuša ponovno (ukupno 5 puta)."""
     data = json.dumps({"text": text}).encode()
-    req = urllib.request.Request(WEBHOOK, data=data, headers={"Content-Type": "application/json"})
-    urllib.request.urlopen(req, timeout=30)
+    for i in range(attempts):
+        try:
+            req = urllib.request.Request(WEBHOOK, data=data, headers={"Content-Type": "application/json"})
+            urllib.request.urlopen(req, timeout=30)
+            return
+        except Exception as e:
+            print(f"Slanje u Slack nije uspjelo (pokušaj {i + 1}/{attempts}):", e)
+            if i < attempts - 1:
+                time.sleep(20)
+    raise RuntimeError("Slack nije primio poruku ni nakon više pokušaja")
 
 
 def build_message(team, opponent, start, is_home):
@@ -105,14 +115,26 @@ save_sent(sent)
 # obavijest točno 60 min prije početka. Na kraju preda posao sljedećoj "smjeni".
 end_time = now_utc() + timedelta(minutes=RUN_MINUTES)
 matches = []
+fail_since = None   # od kada raspored nije dostupan
+warned = False      # je li upozorenje već poslano u ovoj smjeni
 while now_utc() < end_time:
     try:
         matches = fetch_matches()
+        fail_since = None
         for match_id, start, text in matches:
             if match_id not in sent:
                 print(f"Vidim: {text.split(' - ')[0]} (početak {start.isoformat()})")
     except Exception as e:
         print("Greška pri dohvaćanju rasporeda, pokušat ću ponovno:", e)
+        fail_since = fail_since or now_utc()
+        if not warned and now_utc() - fail_since >= timedelta(minutes=FETCH_ALERT_MINUTES):
+            try:
+                send_slack(":warning: *Match reminder:* već " + str(FETCH_ALERT_MINUTES) +
+                           " min ne mogu dohvatiti raspored utakmica (football-data.org ne odgovara). "
+                           "Obavijesti za Sevillu i Marseille možda neće stići na vrijeme dok se to ne riješi.")
+                warned = True
+            except Exception as e2:
+                print("Ni upozorenje nije moguće poslati:", e2)
 
     next_wake = now_utc() + timedelta(seconds=CHECK_EVERY_SECONDS)
     for match_id, start, text in sorted(matches, key=lambda x: x[1]):
