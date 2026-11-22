@@ -2,7 +2,7 @@ name: Match podsjetnik
 
 on:
   schedule:
-    - cron: "*/15 * * * *"
+    - cron: "*/15 * * * *"   # rezerva: ako se lanac ikad prekine, ovo ga ponovno pokrene
   workflow_dispatch:
     inputs:
       test:
@@ -10,7 +10,11 @@ on:
         type: boolean
         default: true
 
-# Nikad ne pokreće dvije provjere istovremeno (sprječava duple poruke)
+permissions:
+  actions: write
+  contents: read
+
+# Uvijek radi samo jedna "smjena" bota (sprječava duple poruke)
 concurrency:
   group: match-reminder
   cancel-in-progress: false
@@ -18,6 +22,7 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 355
     steps:
       - uses: actions/checkout@v4
 
@@ -36,8 +41,14 @@ jobs:
           TEST: ${{ inputs.test }}
 
       - name: Spremi popis poslanih obavijesti
-        if: ${{ !inputs.test }}
+        if: ${{ always() && !inputs.test }}
         uses: actions/cache/save@v4
         with:
           path: sent.json
           key: sent-${{ github.run_id }}
+
+      - name: Pokreni sljedeću smjenu
+        if: ${{ success() && !inputs.test }}
+        run: gh workflow run sevilla.yml --repo "${{ github.repository }}" -f test=false
+        env:
+          GH_TOKEN: ${{ github.token }}
